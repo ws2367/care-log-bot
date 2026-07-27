@@ -11,6 +11,7 @@ import { localDateTime } from "./config.js";
 export const PATHS = {
   profile: "patient/profile.md",
   members: "patient/members.md",
+  instructions: "prompts/custom.md",
   logDir: "logs",
   attachmentDir: "attachments",
   log: (date: string) => `logs/${date}.md`,
@@ -46,6 +47,8 @@ export interface BotContext {
   turns: ConversationTurn[];
   /** Recent turns from OTHER chats (group vs 1:1), for cross-chat awareness. */
   otherChats: Array<{ chatId: string; turns: ConversationTurn[] }>;
+  /** Family-customizable standing instructions (prompts/custom.md). */
+  instructions: string;
 }
 
 export async function loadContext(chatId: string, recentDays = 7): Promise<BotContext> {
@@ -55,11 +58,12 @@ export async function loadContext(chatId: string, recentDays = 7): Promise<BotCo
     dates.push(localDateTime(new Date(now - i * 86400_000)).date);
   }
 
-  const [profile, members, convo, otherChatFiles, ...logs] = await Promise.all([
+  const [profile, members, convo, otherChatFiles, instructions, ...logs] = await Promise.all([
     readFile(PATHS.profile),
     readFile(PATHS.members),
     readFile(PATHS.conversation(chatId)),
     listDir(".state/conversations"),
+    readFile(PATHS.instructions),
     ...dates.map((d) => readFile(PATHS.log(d))),
   ]);
 
@@ -102,7 +106,12 @@ export async function loadContext(chatId: string, recentDays = 7): Promise<BotCo
     recentLogs,
     turns,
     otherChats,
+    instructions: instructions?.content ?? "",
   };
+}
+
+export async function writeInstructions(content: string): Promise<void> {
+  await writeFile(PATHS.instructions, content, "prompts: 更新家屬自訂指示");
 }
 
 export async function saveConversation(
@@ -178,8 +187,8 @@ export async function editDataFile(
 ): Promise<string | null> {
   const clean = path.replace(/^\/+/, "");
   if (clean.includes("..") || !clean.endsWith(".md")) return "路徑不允許";
-  if (!clean.startsWith("logs/") && !clean.startsWith("patient/")) {
-    return "只能編輯 logs/ 或 patient/ 底下的 .md 檔案";
+  if (!clean.startsWith("logs/") && !clean.startsWith("patient/") && !clean.startsWith("prompts/")) {
+    return "只能編輯 logs/、patient/ 或 prompts/ 底下的 .md 檔案";
   }
   await writeFile(clean, content, `edit: ${clean} — ${reason}`.slice(0, 100));
   return null;
@@ -189,7 +198,7 @@ export async function editDataFile(
 export async function readDataFile(path: string): Promise<string | null> {
   const clean = path.replace(/^\/+/, "");
   if (clean.includes("..")) return null;
-  const allowed = ["patient/", "logs/", "attachments/"];
+  const allowed = ["patient/", "logs/", "attachments/", "prompts/"];
   if (!allowed.some((p) => clean.startsWith(p))) return null;
   const f = await readFile(clean);
   return f?.content ?? null;

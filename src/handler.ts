@@ -1,6 +1,15 @@
 import { runAgent, type IncomingMessage } from "./agent.js";
+import { localDateTime } from "./config.js";
 import { getMessageContent, getSenderName, respond } from "./line.js";
-import { loadContext, saveAttachment, saveConversation, type ConversationTurn } from "./store.js";
+import { reviewReply } from "./reviewer.js";
+import {
+  loadContext,
+  PATHS,
+  readDataFile,
+  saveAttachment,
+  saveConversation,
+  type ConversationTurn,
+} from "./store.js";
 import { transcribeAudio } from "./transcribe.js";
 
 // LINE webhook event (the subset we use).
@@ -115,6 +124,42 @@ export async function handleEvent(event: LineEvent): Promise<void> {
       "抱歉，小安剛剛出了點狀況，這則訊息沒有記錄成功。請稍後再傳一次 🙏",
     ]);
     return;
+  }
+
+  // Pre-send review: an independent model call with a clean context window
+  // checks the draft against the ACTUAL post-write file contents, so the bot
+  // can never again claim "已記錄" for something that isn't in the files.
+  // Fails open (sends the draft) so a reviewer outage can't block care messages.
+  if (reply) {
+    try {
+      const today = localDateTime().date;
+      const paths = [...new Set([PATHS.log(today), PATHS.profile, PATHS.members, ...wrote])];
+      const files = (
+        await Promise.all(
+          paths.map(async (p) => ({ path: p, content: await readDataFile(p) }))
+        )
+      ).filter((f): f is { path: string; content: string } => f.content !== null);
+
+      const recentTurns = ctx.turns
+        .slice(-4)
+        .map((t) => `${t.role === "user" ? t.name ?? "家屬" : "小安"}：${t.text.slice(0, 200)}`)
+        .join("\n");
+
+      const review = await reviewReply({
+        senderName,
+        incomingText: incoming.text,
+        recentTurns,
+        draft: reply,
+        wrote,
+        files,
+      });
+      if (review.revised) {
+        console.log("reviewer revised reply:", review.reason);
+        reply = review.finalReply;
+      }
+    } catch (err) {
+      console.error("reviewer failed; sending unreviewed draft", err);
+    }
   }
 
   // Persist the conversation turns (user + assistant) for follow-up context.

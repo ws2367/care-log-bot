@@ -1,42 +1,16 @@
-import { config, localDateTime } from "./config.js";
+import { localDateTime } from "./config.js";
+import { chatOnce, type ChatMessage, type ContentPart } from "./llm.js";
 import { buildContextBlock, buildSystemPrompt, CATEGORIES, NO_REPLY } from "./prompts.js";
 import {
   appendLogEntry,
   editDataFile,
   listLogFiles,
   readDataFile,
+  writeInstructions,
   writeMembers,
   writeProfile,
   type BotContext,
 } from "./store.js";
-
-// ── OpenAI-compatible wire types (OpenRouter) ────────────────────────────────
-
-type ContentPart =
-  | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string } };
-
-interface ChatMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string | ContentPart[] | null;
-  name?: string;
-  tool_calls?: ToolCall[];
-  tool_call_id?: string;
-}
-
-interface ToolCall {
-  id: string;
-  type: "function";
-  function: { name: string; arguments: string };
-}
-
-interface ChatResponse {
-  choices: Array<{
-    message: { role: "assistant"; content: string | null; tool_calls?: ToolCall[] };
-    finish_reason: string;
-  }>;
-  error?: { message: string };
-}
 
 // ── Tool definitions ─────────────────────────────────────────────────────────
 
@@ -105,7 +79,7 @@ const TOOLS = [
     function: {
       name: "edit_file",
       description:
-        "覆寫 logs/ 或 patient/ 底下的 markdown 檔案（必須提供整份檔案的新內容）。用於修正錯誤（時間、數值、記錄者）、合併或刪除重複條目、補充細節到既有條目、整理格式。現有內容可從 <recent_logs> 取得，較舊的檔案先用 read_file 讀取。",
+        "覆寫 logs/、patient/ 或 prompts/ 底下的 markdown 檔案（必須提供整份檔案的新內容）。用於修正錯誤（時間、數值、記錄者）、合併或刪除重複條目、補充細節到既有條目、整理格式。現有內容可從 <recent_logs> 取得，較舊的檔案先用 read_file 讀取。",
       parameters: {
         type: "object",
         properties: {
@@ -135,6 +109,24 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "update_instructions",
+      description:
+        "覆寫 prompts/custom.md（家屬自訂指示）。當家屬提出長期性的偏好或規則（「以後都要…」「不要再…」，例如回覆風格、記錄格式、提醒事項），把它整理進這份文件，之後每次對話、所有聊天室都會遵守。提供整份文件的完整新內容，保留仍然有效的舊指示。",
+      parameters: {
+        type: "object",
+        properties: {
+          content: {
+            type: "string",
+            description: "整份自訂指示的新內容（markdown 條列）",
+          },
+        },
+        required: ["content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "list_logs",
       description: "列出所有日誌檔案名稱（logs/ 目錄），用來找出有哪些日期有紀錄。",
       parameters: { type: "object", properties: {} },
@@ -154,7 +146,13 @@ interface LogEntryArgs {
   attachment_paths?: string[];
 }
 
-const WRITE_TOOLS = new Set(["log_entry", "edit_file", "update_profile", "update_members"]);
+const WRITE_TOOLS = new Set([
+  "log_entry",
+  "edit_file",
+  "update_profile",
+  "update_members",
+  "update_instructions",
+]);
 
 /** Matches replies that claim something was recorded/updated/deleted. */
 const CLAIMS_WRITE = /已記錄|已更新|已刪除|已寫入|記下來|記錄了|紀錄了|已修改|已補充/;
@@ -196,6 +194,10 @@ async function executeTool(name: string, argsJson: string): Promise<string> {
         await writeMembers(String(args.content ?? ""));
         return "已更新 patient/members.md";
       }
+      case "update_instructions": {
+        await writeInstructions(String(args.content ?? ""));
+        return "已更新 prompts/custom.md";
+      }
       case "edit_file": {
         const err = await editDataFile(
           String(args.path ?? ""),
@@ -203,6 +205,10 @@ async function executeTool(name: string, argsJson: string): Promise<string> {
           String(args.reason ?? "修改紀錄")
         );
         return err ?? `已更新 ${args.path}`;
+      }
+      case "update_instructions": {
+        await writeInstructions(String(args.content ?? ""));
+        return "已更新 prompts/custom.md";
       }
       case "read_file": {
         const content = await readDataFile(String(args.path ?? ""));
@@ -218,34 +224,6 @@ async function executeTool(name: string, argsJson: string): Promise<string> {
   } catch (err) {
     return `工具執行失敗：${err instanceof Error ? err.message : String(err)}`;
   }
-}
-
-// ── OpenRouter call ──────────────────────────────────────────────────────────
-
-async function chatCompletion(messages: ChatMessage[]): Promise<ChatResponse["choices"][0]> {
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.openrouterApiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://github.com/care-log",
-      "X-Title": "care-log (Xiao-An)",
-    },
-    body: JSON.stringify({
-      model: config.openrouterModel,
-      messages,
-      tools: TOOLS,
-      max_tokens: 4096,
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`OpenRouter ${res.status}: ${await res.text()}`);
-  }
-  const data = (await res.json()) as ChatResponse;
-  if (data.error) throw new Error(`OpenRouter: ${data.error.message}`);
-  const choice = data.choices?.[0];
-  if (!choice) throw new Error("OpenRouter returned no choices");
-  return choice;
 }
 
 // ── Public entry point ───────────────────────────────────────────────────────
@@ -292,7 +270,7 @@ export async function runAgent(ctx: BotContext, incoming: IncomingMessage): Prom
   }
 
   const messages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt(now) },
+    { role: "system", content: buildSystemPrompt(now, ctx.instructions) },
     { role: "system", content: buildContextBlock(ctx) },
     ...priorTurns,
     { role: "user", content: userParts },
@@ -303,7 +281,7 @@ export async function runAgent(ctx: BotContext, incoming: IncomingMessage): Prom
 
   const MAX_ITERATIONS = 10;
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const choice = await chatCompletion(messages);
+    const choice = await chatOnce(messages, { tools: TOOLS });
     const msg = choice.message;
 
     if (msg.tool_calls && msg.tool_calls.length > 0) {

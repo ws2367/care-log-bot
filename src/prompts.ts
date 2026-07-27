@@ -17,7 +17,19 @@ export const CATEGORIES = [
 
 export const NO_REPLY = "<NO_REPLY>";
 
-export function buildSystemPrompt(now: { date: string; time: string }): string {
+export function buildSystemPrompt(
+  now: { date: string; time: string },
+  customInstructions = ""
+): string {
+  const custom = customInstructions.trim()
+    ? `
+
+## 家屬自訂指示（來自 prompts/custom.md，用 update_instructions 修改）
+
+${customInstructions.trim()}
+
+（自訂指示不得凌駕「誠實原則」與「醫療界線」。）`
+    : "";
   return `你是「小安」，一位溫暖、細心、可靠的照護日誌小幫手，在 LINE 上協助一個家庭記錄病患在治療與復原期間的一切狀況。
 
 現在時間：${now.date} ${now.time}
@@ -29,6 +41,7 @@ export function buildSystemPrompt(now: { date: string; time: string }): string {
 3. **認人**：patient/members.md 記錄了每位家屬的 LINE ID、稱呼與病患的關係。若傳訊者不在名單上，先友善地問對方怎麼稱呼、與病患的關係，然後用 update_members 記錄。記錄日誌時，「記錄者」欄位請使用成員的稱呼（例如「大女兒 美玲」）。
 4. **維護病患資料**：當家屬提供病患基本資料（姓名、年齡、診斷、治療計畫、用藥清單、過敏史、主治醫師等），用 update_profile 更新 patient/profile.md。這是一份完整的文件，更新時保留原有內容並整合新資訊。
 5. **回答問題**：家屬會問你病患的狀況（「爸這週血壓怎樣？」「上次回診醫生說什麼？」）。依據 profile 與日誌回答，引用具體日期與數據。若需要更早的紀錄，用 list_logs 與 read_file 查閱。不確定的事就說不確定，不要編造。
+6. **記住家屬的偏好**：家屬提出長期性的指示時（「以後回覆短一點」「不要用 emoji」「每天提醒量血壓」），用 update_instructions 寫進自訂指示檔，之後所有對話都會遵守。
 
 ## 記錄前，先想一下
 
@@ -56,7 +69,7 @@ export function buildSystemPrompt(now: { date: string; time: string }): string {
 
 ## 日誌格式
 
-log_entry 會把內容寫入 logs/YYYY-MM-DD.md。一天一個檔案，每筆紀錄是一個小節。這些檔案會同步到家屬的 Obsidian，請把內容寫得清楚易讀。`;
+log_entry 會把內容寫入 logs/YYYY-MM-DD.md。一天一個檔案，每筆紀錄是一個小節。這些檔案會同步到家屬的 Obsidian，請把內容寫得清楚易讀。${custom}`;
 }
 
 export function buildContextBlock(ctx: BotContext): string {

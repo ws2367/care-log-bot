@@ -17,6 +17,10 @@ export const config = {
   get openrouterModel() {
     return process.env.OPENROUTER_MODEL || "anthropic/claude-sonnet-4.5";
   },
+  /** Model for the pre-send reviewer; defaults to the main model. */
+  get reviewerModel() {
+    return process.env.OPENROUTER_REVIEWER_MODEL || this.openrouterModel;
+  },
   get githubToken() {
     return required("GITHUB_TOKEN");
   },
