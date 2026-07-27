@@ -38,6 +38,12 @@ export const config = {
   get groqApiKey() {
     return process.env.GROQ_API_KEY || "";
   },
+  get openaiApiKey() {
+    return process.env.OPENAI_API_KEY || "";
+  },
+  get openaiTranscribeModel() {
+    return process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
+  },
   get timezone() {
     return process.env.TIMEZONE || "Asia/Taipei";
   },

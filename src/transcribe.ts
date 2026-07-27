@@ -1,15 +1,43 @@
 import { config } from "./config.js";
 
 /**
- * Transcribe an audio buffer with Groq's hosted Whisper (free tier available).
- * Returns null when no GROQ_API_KEY is configured.
+ * Transcribe an audio buffer. Provider preference:
+ *   1. OpenAI  (OPENAI_API_KEY; model OPENAI_TRANSCRIBE_MODEL, default gpt-4o-mini-transcribe)
+ *   2. Groq    (GROQ_API_KEY; whisper-large-v3)
+ * Returns null when neither provider is configured.
  */
 export async function transcribeAudio(
   bytes: Buffer,
   contentType: string
 ): Promise<string | null> {
-  if (!config.groqApiKey) return null;
+  if (config.openaiApiKey) {
+    return transcribeVia(
+      "https://api.openai.com/v1/audio/transcriptions",
+      config.openaiApiKey,
+      config.openaiTranscribeModel,
+      bytes,
+      contentType
+    );
+  }
+  if (config.groqApiKey) {
+    return transcribeVia(
+      "https://api.groq.com/openai/v1/audio/transcriptions",
+      config.groqApiKey,
+      "whisper-large-v3",
+      bytes,
+      contentType
+    );
+  }
+  return null;
+}
 
+async function transcribeVia(
+  url: string,
+  apiKey: string,
+  model: string,
+  bytes: Buffer,
+  contentType: string
+): Promise<string> {
   const form = new FormData();
   const ext = contentType.includes("mp") ? "mp3" : "m4a";
   form.append(
@@ -17,16 +45,16 @@ export async function transcribeAudio(
     new Blob([new Uint8Array(bytes)], { type: contentType }),
     `voice.${ext}`
   );
-  form.append("model", "whisper-large-v3");
+  form.append("model", model);
   form.append("response_format", "text");
 
-  const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+  const res = await fetch(url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${config.groqApiKey}` },
+    headers: { Authorization: `Bearer ${apiKey}` },
     body: form,
   });
   if (!res.ok) {
-    throw new Error(`Groq transcription failed: ${res.status} ${await res.text()}`);
+    throw new Error(`Transcription (${model}) failed: ${res.status} ${await res.text()}`);
   }
   return (await res.text()).trim();
 }
