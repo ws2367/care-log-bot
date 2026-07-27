@@ -1,5 +1,5 @@
-import { listDir, readFile, writeFile } from "./github";
-import { localDateTime } from "./config";
+import { listDir, readFile, writeFile } from "./github.js";
+import { localDateTime } from "./config.js";
 
 // Repo layout (inside DATA_ROOT):
 //   patient/profile.md      — patient basics (name, diagnosis, meds, allergies…)

@@ -1,7 +1,7 @@
-import { runAgent, type IncomingMessage } from "./agent";
-import { getMessageContent, getSenderName, respond } from "./line";
-import { loadContext, saveAttachment, saveConversation, type ConversationTurn } from "./store";
-import { transcribeAudio } from "./transcribe";
+import { runAgent, type IncomingMessage } from "./agent.js";
+import { getMessageContent, getSenderName, respond } from "./line.js";
+import { loadContext, saveAttachment, saveConversation, type ConversationTurn } from "./store.js";
+import { transcribeAudio } from "./transcribe.js";
 
 // LINE webhook event (the subset we use).
 export interface LineEvent {

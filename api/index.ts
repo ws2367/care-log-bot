@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { handle } from "hono/vercel";
 import { waitUntil } from "@vercel/functions";
-import { verifySignature } from "../src/line";
-import { handleEvent, type LineEvent } from "../src/handler";
+import { verifySignature } from "../src/line.js";
+import { handleEvent, type LineEvent } from "../src/handler.js";
 
 const app = new Hono().basePath("/api");
 

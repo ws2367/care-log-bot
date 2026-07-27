@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { config } from "./config";
+import { config } from "./config.js";
 
 const API = "https://api.line.me/v2/bot";
 const DATA_API = "https://api-data.line.me/v2/bot";

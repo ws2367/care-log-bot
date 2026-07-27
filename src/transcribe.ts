@@ -1,4 +1,4 @@
-import { config } from "./config";
+import { config } from "./config.js";
 
 /**
  * Transcribe an audio buffer with Groq's hosted Whisper (free tier available).

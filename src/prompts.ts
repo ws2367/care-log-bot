@@ -1,4 +1,4 @@
-import type { BotContext } from "./store";
+import type { BotContext } from "./store.js";
 
 export const CATEGORIES = [
   "用藥",

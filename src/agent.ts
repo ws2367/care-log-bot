@@ -1,5 +1,5 @@
-import { config, localDateTime } from "./config";
-import { buildContextBlock, buildSystemPrompt, CATEGORIES, NO_REPLY } from "./prompts";
+import { config, localDateTime } from "./config.js";
+import { buildContextBlock, buildSystemPrompt, CATEGORIES, NO_REPLY } from "./prompts.js";
 import {
   appendLogEntry,
   listLogFiles,
@@ -7,7 +7,7 @@ import {
   writeMembers,
   writeProfile,
   type BotContext,
-} from "./store";
+} from "./store.js";
 
 // ── OpenAI-compatible wire types (OpenRouter) ────────────────────────────────
 
