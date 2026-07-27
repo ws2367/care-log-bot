@@ -10,6 +10,7 @@
     "deploy": "vercel deploy --prod"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.17",
     "@vercel/functions": "^2.0.0",
     "hono": "^4.6.0"
   },
