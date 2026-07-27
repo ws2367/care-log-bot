@@ -7,7 +7,7 @@ import { handleEvent, type LineEvent } from "../src/handler.js";
 const app = new Hono().basePath("/api");
 
 app.get("/", (c) =>
-  c.json({ ok: true, service: "medic-bot (小安 照護日誌)", time: new Date().toISOString() })
+  c.json({ ok: true, service: "care-log (小安 照護日誌)", time: new Date().toISOString() })
 );
 
 app.post("/webhook", async (c) => {

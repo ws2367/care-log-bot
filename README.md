@@ -1,4 +1,4 @@
-# 小安（Xiǎo-Ān）— LINE 照護日誌機器人 / medic-bot
+# 小安（Xiǎo-Ān）— LINE 照護日誌機器人 / care-log
 
 A LINE bot that lets a patient's family members log everything about the patient's
 treatment and recovery — by simply sending **text, photos, or voice messages** in a
@@ -84,7 +84,7 @@ Every log entry looks like:
 
 ```bash
 npm install -g vercel@latest   # your local CLI (55.x) is outdated; 57+ recommended
-cd medic-bot
+cd care-log
 npm install
 vercel link                    # create/link a Vercel project
 ```

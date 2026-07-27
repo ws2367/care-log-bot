@@ -197,8 +197,8 @@ async function chatCompletion(messages: ChatMessage[]): Promise<ChatResponse["ch
     headers: {
       Authorization: `Bearer ${config.openrouterApiKey}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": "https://github.com/medic-bot",
-      "X-Title": "medic-bot (Xiao-An care log)",
+      "HTTP-Referer": "https://github.com/care-log",
+      "X-Title": "care-log (Xiao-An)",
     },
     body: JSON.stringify({
       model: config.openrouterModel,

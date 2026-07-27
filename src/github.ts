@@ -12,7 +12,7 @@ function headers(): Record<string, string> {
     Authorization: `Bearer ${config.githubToken}`,
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
-    "User-Agent": "medic-bot",
+    "User-Agent": "care-log",
   };
 }
 

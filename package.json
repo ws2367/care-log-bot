@@ -1,5 +1,5 @@
 {
-  "name": "medic-bot",
+  "name": "care-log",
   "version": "0.1.0",
   "private": true,
   "description": "小安 (Xiao-An) — LINE care-log bot: family members log a patient's treatment & recovery via text/photo/voice; structured markdown synced to a git repo (Obsidian-ready).",
