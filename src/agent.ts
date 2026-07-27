@@ -206,10 +206,6 @@ async function executeTool(name: string, argsJson: string): Promise<string> {
         );
         return err ?? `已更新 ${args.path}`;
       }
-      case "update_instructions": {
-        await writeInstructions(String(args.content ?? ""));
-        return "已更新 prompts/custom.md";
-      }
       case "read_file": {
         const content = await readDataFile(String(args.path ?? ""));
         return content ?? "（檔案不存在或路徑不允許）";
