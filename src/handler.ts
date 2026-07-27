@@ -104,8 +104,11 @@ export async function handleEvent(event: LineEvent): Promise<void> {
   }
 
   let reply: string | null = null;
+  let wrote: string[] = [];
   try {
-    reply = await runAgent(ctx, incoming);
+    const result = await runAgent(ctx, incoming);
+    reply = result.reply;
+    wrote = result.wrote;
   } catch (err) {
     console.error("agent failed", err);
     await respond(event.replyToken, chatId, [
@@ -115,12 +118,18 @@ export async function handleEvent(event: LineEvent): Promise<void> {
   }
 
   // Persist the conversation turns (user + assistant) for follow-up context.
+  // Assistant turns are annotated with the files actually written that turn,
+  // so future runs can distinguish real writes from mere claims.
   const at = new Date().toISOString();
   const turns: ConversationTurn[] = [
     ...ctx.turns,
     { role: "user", name: senderName, text: turnDescription, at },
   ];
-  if (reply) turns.push({ role: "assistant", text: reply, at });
+  if (reply) {
+    const annotation =
+      wrote.length > 0 ? `〔本回合已寫入：${[...new Set(wrote)].join("、")}〕` : "〔本回合未寫入檔案〕";
+    turns.push({ role: "assistant", text: `${reply}\n${annotation}`, at });
+  }
   try {
     await saveConversation(chatId, turns);
   } catch (err) {

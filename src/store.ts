@@ -44,6 +44,8 @@ export interface BotContext {
   /** Map of date → log markdown for the last few days. */
   recentLogs: Array<{ date: string; content: string }>;
   turns: ConversationTurn[];
+  /** Recent turns from OTHER chats (group vs 1:1), for cross-chat awareness. */
+  otherChats: Array<{ chatId: string; turns: ConversationTurn[] }>;
 }
 
 export async function loadContext(chatId: string, recentDays = 7): Promise<BotContext> {
@@ -53,12 +55,31 @@ export async function loadContext(chatId: string, recentDays = 7): Promise<BotCo
     dates.push(localDateTime(new Date(now - i * 86400_000)).date);
   }
 
-  const [profile, members, convo, ...logs] = await Promise.all([
+  const [profile, members, convo, otherChatFiles, ...logs] = await Promise.all([
     readFile(PATHS.profile),
     readFile(PATHS.members),
     readFile(PATHS.conversation(chatId)),
+    listDir(".state/conversations"),
     ...dates.map((d) => readFile(PATHS.log(d))),
   ]);
+
+  const otherIds = otherChatFiles
+    .filter((n) => n.endsWith(".json") && n !== `${chatId}.json`)
+    .map((n) => n.replace(/\.json$/, ""))
+    .slice(0, 5);
+  const otherChats: Array<{ chatId: string; turns: ConversationTurn[] }> = [];
+  await Promise.all(
+    otherIds.map(async (id) => {
+      const f = await readFile(PATHS.conversation(id));
+      if (!f) return;
+      try {
+        const turns = (JSON.parse(f.content) as ConversationTurn[]).slice(-8);
+        if (turns.length > 0) otherChats.push({ chatId: id, turns });
+      } catch {
+        /* ignore corrupt state */
+      }
+    })
+  );
 
   const recentLogs: Array<{ date: string; content: string }> = [];
   logs.forEach((f, i) => {
@@ -80,6 +101,7 @@ export async function loadContext(chatId: string, recentDays = 7): Promise<BotCo
     members: members?.content ?? MEMBERS_TEMPLATE,
     recentLogs,
     turns,
+    otherChats,
   };
 }
 

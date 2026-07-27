@@ -154,6 +154,11 @@ interface LogEntryArgs {
   attachment_paths?: string[];
 }
 
+const WRITE_TOOLS = new Set(["log_entry", "edit_file", "update_profile", "update_members"]);
+
+/** Matches replies that claim something was recorded/updated/deleted. */
+const CLAIMS_WRITE = /已記錄|已更新|已刪除|已寫入|記下來|記錄了|紀錄了|已修改|已補充/;
+
 async function executeTool(name: string, argsJson: string): Promise<string> {
   let args: Record<string, unknown>;
   try {
@@ -256,11 +261,15 @@ export interface IncomingMessage {
   audioPath?: string;
 }
 
-/**
- * Run the agent loop for one incoming message.
- * Returns the bot's reply text, or null when the bot chooses to stay silent.
- */
-export async function runAgent(ctx: BotContext, incoming: IncomingMessage): Promise<string | null> {
+export interface AgentResult {
+  /** Reply text, or null when the bot chooses to stay silent. */
+  reply: string | null;
+  /** Repo files successfully written during this run. */
+  wrote: string[];
+}
+
+/** Run the agent loop for one incoming message. */
+export async function runAgent(ctx: BotContext, incoming: IncomingMessage): Promise<AgentResult> {
   const now = localDateTime();
 
   const priorTurns: ChatMessage[] = ctx.turns.map((t) => ({
@@ -289,7 +298,10 @@ export async function runAgent(ctx: BotContext, incoming: IncomingMessage): Prom
     { role: "user", content: userParts },
   ];
 
-  const MAX_ITERATIONS = 8;
+  const wrote: string[] = [];
+  let guarded = false;
+
+  const MAX_ITERATIONS = 10;
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const choice = await chatCompletion(messages);
     const msg = choice.message;
@@ -302,20 +314,41 @@ export async function runAgent(ctx: BotContext, incoming: IncomingMessage): Prom
       });
       for (const call of msg.tool_calls) {
         const result = await executeTool(call.function.name, call.function.arguments);
+        const written = result.match(/^已(?:寫入|更新)\s+(\S+)/);
+        if (WRITE_TOOLS.has(call.function.name) && written?.[1]) wrote.push(written[1]);
         messages.push({ role: "tool", tool_call_id: call.id, content: result });
       }
       continue;
     }
 
     const text = (msg.content ?? "").trim();
-    if (!text || text === NO_REPLY || text.includes(NO_REPLY)) return null;
+    if (!text || text === NO_REPLY || text.includes(NO_REPLY)) return { reply: null, wrote };
+
+    // Write-guard: the model may claim "已記錄" without having called any
+    // write tool (it imitates its own past replies). Push back once and let
+    // it either actually write or correct its answer.
+    if (wrote.length === 0 && CLAIMS_WRITE.test(text) && !guarded) {
+      guarded = true;
+      messages.push({ role: "assistant", content: text });
+      messages.push({
+        role: "system",
+        content:
+          "（系統提醒）你這回合尚未呼叫任何寫入工具，檔案完全沒有變更。" +
+          "如果你剛才聲稱已記錄／已更新的內容還不存在於 <recent_logs> 的檔案裡，" +
+          "請現在就用 log_entry 或 edit_file 實際寫入，完成後再回覆家屬。" +
+          "如果內容確實已在檔案中，請照實回答即可。絕不能在沒有寫入的情況下宣稱已記錄。",
+      });
+      continue;
+    }
+
     // LINE renders plain text only — strip markdown emphasis/heading markers
     // in case the model slips them in despite the prompt.
-    return text
+    const cleaned = text
       .replace(/\*\*(.+?)\*\*/g, "$1")
       .replace(/^#{1,4}\s+/gm, "")
       .trim();
+    return { reply: cleaned, wrote };
   }
 
-  return "抱歉，這則訊息我處理得有點久，請再傳一次好嗎？🙏";
+  return { reply: "抱歉，這則訊息我處理得有點久，請再傳一次好嗎？🙏", wrote };
 }

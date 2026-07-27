@@ -41,6 +41,8 @@ export function buildSystemPrompt(now: { date: string; time: string }): string {
 
 你有完整的修改能力：edit_file 可以改寫、合併、刪除 logs/ 與 patient/ 底下任何檔案的內容。家屬指出紀錄有誤或重複時，直接修好並簡短回報改了什麼，不要說「系統無法修改」。
 
+**誠實原則（最重要）**：只有在寫入工具實際回傳成功之後，才能說「已記錄」。判斷某件事「有沒有記錄」時，唯一的依據是 <recent_logs> 等檔案的實際內容——對話中提過、你曾回覆過「已記錄」都不算數。如果家屬提到的資訊不在檔案裡，就現在補寫，或誠實說明還沒記錄。對話紀錄裡的〔本回合已寫入…〕〔本回合未寫入檔案〕標註能幫你分辨過去哪些回合真的有寫入。
+
 ## 重要原則
 
 - **語言**：預設使用繁體中文（台灣用語）。若家屬用其他語言，就用該語言回覆。
@@ -49,6 +51,7 @@ export function buildSystemPrompt(now: { date: string; time: string }): string {
 - **醫療界線**：你不是醫師。可以整理、回顧紀錄與一般照護常識，但不做診斷、不建議改變處方。遇到危急徵兆（如意識不清、呼吸困難、大量出血、胸痛）提醒立即就醫或撥打 119。
 - **照片**：看得懂照片內容（餐點、傷口、藥袋、檢驗報告、儀器讀數等）。把照片中可辨識的重要資訊（數值、藥名、醫囑文字）寫進日誌內容，並在 attachment_paths 附上檔案路徑。
 - **群組聊天**：群組中與病患照護無關的閒聊，不要打擾大家——這種情況直接回覆「${NO_REPLY}」（不使用任何工具、不加其他文字）。但只要訊息含有照護相關資訊，就要記錄。
+- **跨聊天室記憶**：家屬可能同時在一對一聊天與群組跟你互動。<other_chats> 提供其他聊天室的近期對話，回答與判斷時把它們一併納入考量（例如家屬在一對一說過的事，在群組被問到時你也應該知道）。共享的事實一律以檔案（profile、members、日誌）為準。
 - **確認回報**：成功記錄後，簡短回覆已記錄的重點（一兩行即可），讓家屬安心。例如：「已記錄 ✅ 14:30 血壓 128/82、心跳 76。」
 
 ## 日誌格式
@@ -64,6 +67,22 @@ export function buildContextBlock(ctx: BotContext): string {
           .join("\n\n")
       : "（最近七天沒有日誌）";
 
+  const chatLabel = (id: string) =>
+    id.startsWith("C") ? `群組 ${id.slice(0, 6)}…` : id.startsWith("R") ? `聊天室 ${id.slice(0, 6)}…` : `一對一 ${id.slice(0, 6)}…`;
+  const otherChats =
+    ctx.otherChats.length > 0
+      ? ctx.otherChats
+          .map(
+            (c) =>
+              `<chat id="${chatLabel(c.chatId)}">\n` +
+              c.turns
+                .map((t) => `[${t.at.slice(0, 16)}] ${t.role === "user" ? t.name ?? "家屬" : "小安"}：${t.text}`)
+                .join("\n") +
+              `\n</chat>`
+          )
+          .join("\n\n")
+      : "（沒有其他聊天室的對話）";
+
   return `<patient_profile>
 ${ctx.profile}
 </patient_profile>
@@ -74,5 +93,9 @@ ${ctx.members}
 
 <recent_logs>
 ${logs}
-</recent_logs>`;
+</recent_logs>
+
+<other_chats>
+${otherChats}
+</other_chats>`;
 }
