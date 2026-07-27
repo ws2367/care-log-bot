@@ -144,6 +144,25 @@ function extFor(contentType: string, kind: "photo" | "audio"): string {
   return map[contentType.split(";")[0]?.trim() ?? ""] ?? (kind === "photo" ? "jpg" : "m4a");
 }
 
+/**
+ * Overwrite a markdown file under logs/ or patient/ (for the agent's
+ * edit_file tool — corrections, deduping, restructuring). Returns an error
+ * string when the path is not allowed, null on success.
+ */
+export async function editDataFile(
+  path: string,
+  content: string,
+  reason: string
+): Promise<string | null> {
+  const clean = path.replace(/^\/+/, "");
+  if (clean.includes("..") || !clean.endsWith(".md")) return "路徑不允許";
+  if (!clean.startsWith("logs/") && !clean.startsWith("patient/")) {
+    return "只能編輯 logs/ 或 patient/ 底下的 .md 檔案";
+  }
+  await writeFile(clean, content, `edit: ${clean} — ${reason}`.slice(0, 100));
+  return null;
+}
+
 /** Read any file under the data root (for the agent's read_file tool). */
 export async function readDataFile(path: string): Promise<string | null> {
   const clean = path.replace(/^\/+/, "");

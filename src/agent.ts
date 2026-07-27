@@ -2,6 +2,7 @@ import { config, localDateTime } from "./config.js";
 import { buildContextBlock, buildSystemPrompt, CATEGORIES, NO_REPLY } from "./prompts.js";
 import {
   appendLogEntry,
+  editDataFile,
   listLogFiles,
   readDataFile,
   writeMembers,
@@ -102,6 +103,23 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "edit_file",
+      description:
+        "覆寫 logs/ 或 patient/ 底下的 markdown 檔案（必須提供整份檔案的新內容）。用於修正錯誤（時間、數值、記錄者）、合併或刪除重複條目、補充細節到既有條目、整理格式。現有內容可從 <recent_logs> 取得，較舊的檔案先用 read_file 讀取。",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "例如 logs/2026-07-27.md" },
+          content: { type: "string", description: "整份檔案修改後的完整內容（markdown）" },
+          reason: { type: "string", description: "一句話說明改了什麼，例如「刪除 19:00 重複的晚餐紀錄」" },
+        },
+        required: ["path", "content", "reason"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "read_file",
       description:
         "讀取資料庫中的檔案（patient/、logs/、attachments/ 底下）。用於查閱七天前的舊日誌。",
@@ -172,6 +190,14 @@ async function executeTool(name: string, argsJson: string): Promise<string> {
       case "update_members": {
         await writeMembers(String(args.content ?? ""));
         return "已更新 patient/members.md";
+      }
+      case "edit_file": {
+        const err = await editDataFile(
+          String(args.path ?? ""),
+          String(args.content ?? ""),
+          String(args.reason ?? "修改紀錄")
+        );
+        return err ?? `已更新 ${args.path}`;
       }
       case "read_file": {
         const content = await readDataFile(String(args.path ?? ""));
