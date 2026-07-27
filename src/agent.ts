@@ -283,7 +283,12 @@ export async function runAgent(ctx: BotContext, incoming: IncomingMessage): Prom
 
     const text = (msg.content ?? "").trim();
     if (!text || text === NO_REPLY || text.includes(NO_REPLY)) return null;
-    return text;
+    // LINE renders plain text only — strip markdown emphasis/heading markers
+    // in case the model slips them in despite the prompt.
+    return text
+      .replace(/\*\*(.+?)\*\*/g, "$1")
+      .replace(/^#{1,4}\s+/gm, "")
+      .trim();
   }
 
   return "抱歉，這則訊息我處理得有點久，請再傳一次好嗎？🙏";
