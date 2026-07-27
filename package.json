@@ -1,0 +1,21 @@
+{
+  "name": "medic-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "小安 (Xiao-An) — LINE care-log bot: family members log a patient's treatment & recovery via text/photo/voice; structured markdown synced to a git repo (Obsidian-ready).",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "dev": "vercel dev",
+    "deploy": "vercel deploy --prod"
+  },
+  "dependencies": {
+    "@vercel/functions": "^2.0.0",
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.23.1",
+    "typescript": "^5.6.0"
+  }
+}
