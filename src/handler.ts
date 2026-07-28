@@ -120,8 +120,20 @@ export async function handleEvent(event: LineEvent): Promise<void> {
     wrote = result.wrote;
   } catch (err) {
     console.error("agent failed", err);
+    // Still persist the user's turn so the information isn't lost from
+    // memory — a later message can recover it (「把剛剛的內容補記錄」).
+    try {
+      const at = new Date().toISOString();
+      await saveConversation(chatId, [
+        ...ctx.turns,
+        { role: "user", name: senderName, text: turnDescription, at },
+        { role: "assistant", text: "〔系統錯誤：這一則訊息處理失敗，尚未記錄進日誌〕", at },
+      ]);
+    } catch (saveErr) {
+      console.error("failed to save conversation after agent error", saveErr);
+    }
     await respond(event.replyToken, chatId, [
-      "抱歉，小安剛剛出了點狀況，這則訊息沒有記錄成功。請稍後再傳一次 🙏",
+      "抱歉，小安剛剛出了點狀況，這則訊息還沒記錄成功。我已經先把內容留著，稍後可以請我「補記錄」，或再傳一次 🙏",
     ]);
     return;
   }

@@ -34,6 +34,26 @@ export async function chatOnce(
   messages: ChatMessage[],
   opts: { tools?: readonly unknown[]; model?: string; maxTokens?: number } = {}
 ): Promise<ChatChoice> {
+  let lastErr: Error | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 2000));
+    try {
+      return await chatRequest(messages, opts);
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+      // Retry once on transient provider errors; rethrow client errors.
+      if (!/(?:^|\s)(?:429|5\d\d)|fetch failed|network|timeout/i.test(lastErr.message)) {
+        throw lastErr;
+      }
+    }
+  }
+  throw lastErr ?? new Error("chatOnce: unreachable");
+}
+
+async function chatRequest(
+  messages: ChatMessage[],
+  opts: { tools?: readonly unknown[]; model?: string; maxTokens?: number }
+): Promise<ChatChoice> {
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {

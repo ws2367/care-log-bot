@@ -154,8 +154,13 @@ const WRITE_TOOLS = new Set([
   "update_instructions",
 ]);
 
-/** Matches replies that claim something was recorded/updated/deleted. */
-const CLAIMS_WRITE = /已記錄|已更新|已刪除|已寫入|記下來|記錄了|紀錄了|已修改|已補充/;
+/**
+ * Matches replies that claim something was recorded/updated/deleted — OR
+ * promise to do it ("我會馬上寫入", "現在就處理"). Promising instead of doing
+ * is a real failure mode: the model must write first, then reply.
+ */
+const CLAIMS_WRITE =
+  /已記錄|已更新|已刪除|已寫入|記下來|記錄了|紀錄了|已修改|已補充|(?:馬上|立刻|立即|現在就|稍後|等等)[^。\n]{0,10}(?:記錄|寫入|處理|補)|我會[^。\n]{0,12}(?:記錄|寫入|補)/;
 
 async function executeTool(name: string, argsJson: string): Promise<string> {
   let args: Record<string, unknown>;
@@ -273,7 +278,7 @@ export async function runAgent(ctx: BotContext, incoming: IncomingMessage): Prom
   ];
 
   const wrote: string[] = [];
-  let guarded = false;
+  let guardRounds = 0;
 
   const MAX_ITERATIONS = 10;
   for (let i = 0; i < MAX_ITERATIONS; i++) {
@@ -301,16 +306,18 @@ export async function runAgent(ctx: BotContext, incoming: IncomingMessage): Prom
     // Write-guard: the model may claim "已記錄" without having called any
     // write tool (it imitates its own past replies). Push back once and let
     // it either actually write or correct its answer.
-    if (wrote.length === 0 && CLAIMS_WRITE.test(text) && !guarded) {
-      guarded = true;
+    if (wrote.length === 0 && CLAIMS_WRITE.test(text) && guardRounds < 2) {
+      guardRounds++;
       messages.push({ role: "assistant", content: text });
+      // Injected as a user-role message for provider compatibility — some
+      // OpenAI-compatible endpoints reject mid-conversation system messages.
       messages.push({
-        role: "system",
+        role: "user",
         content:
-          "（系統提醒）你這回合尚未呼叫任何寫入工具，檔案完全沒有變更。" +
-          "如果你剛才聲稱已記錄／已更新的內容還不存在於 <recent_logs> 的檔案裡，" +
-          "請現在就用 log_entry 或 edit_file 實際寫入，完成後再回覆家屬。" +
-          "如果內容確實已在檔案中，請照實回答即可。絕不能在沒有寫入的情況下宣稱已記錄。",
+          "（系統提醒，此訊息不是家屬傳的）你這回合尚未成功呼叫任何寫入工具，檔案完全沒有變更。" +
+          "不可以「承諾稍後記錄」——如果有該記錄的內容，現在就用 log_entry 或 edit_file 實際寫入，完成後再回覆家屬。" +
+          "如果內容確實已在 <recent_logs> 的檔案中，或這則訊息本來就不需要記錄，請照實回覆即可。" +
+          "絕不能在沒有寫入的情況下宣稱或承諾記錄。",
       });
       continue;
     }
