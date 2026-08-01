@@ -4,6 +4,7 @@ import { getMessageContent, getSenderName, respond } from "./line.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { reviewReply } from "./reviewer.js";
 import {
+  listLogFiles,
   loadContext,
   PATHS,
   readDataFile,
@@ -157,9 +158,21 @@ export async function handleEvent(event: LineEvent): Promise<void> {
         .map((t) => `${t.role === "user" ? t.name ?? "家屬" : "小安"}：${t.text.slice(0, 200)}`)
         .join("\n");
 
+      const allLogFiles = await listLogFiles();
       for (let round = 1; round <= MAX_REVIEW_ROUNDS; round++) {
         const today = localDateTime().date;
-        const paths = [...new Set([PATHS.log(today), PATHS.profile, PATHS.members, ...wrote])];
+        // The reviewer must see at least everything the agent saw: the full
+        // 7-day log window, not just today — otherwise it "catches" the agent
+        // fabricating data that actually exists in older logs.
+        const paths = [
+          ...new Set([
+            ...ctx.recentLogs.map((l) => PATHS.log(l.date)),
+            PATHS.log(today),
+            PATHS.profile,
+            PATHS.members,
+            ...wrote,
+          ]),
+        ];
         const files = (
           await Promise.all(
             paths.map(async (p) => ({ path: p, content: await readDataFile(p) }))
@@ -173,6 +186,7 @@ export async function handleEvent(event: LineEvent): Promise<void> {
           draft: reply,
           wrote,
           files,
+          allLogFiles,
           agentGuidance: buildSystemPrompt(localDateTime(), ctx.instructions),
         });
 

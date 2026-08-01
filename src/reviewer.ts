@@ -12,6 +12,8 @@ export interface ReviewInput {
   wrote: string[];
   /** Ground truth: current post-write contents of the relevant data files. */
   files: Array<{ path: string; content: string }>;
+  /** Names of ALL log files in the repo (content of older ones not included). */
+  allLogFiles?: string[];
   /**
    * The agent's full working guidance (her system prompt, including the
    * family's custom instructions) — the reviewer audits compliance with it.
@@ -45,6 +47,7 @@ const REVIEWER_SYSTEM = `你是照護日誌機器人「小安」的獨立審核�
    （d）格式正確——寫在正確日期的檔案、正確的類別，附件路徑有帶上。
    檔案內容有誤時用 reject 退回（要用工具修檔案），不能只改回覆文字。
 3. **檔案為準**：回答「有沒有記錄」這類問題時，答案必須與〈檔案實際內容〉完全一致——不能多列不存在的紀錄，也不能漏掉存在的。
+   注意證據範圍：〈檔案實際內容〉提供的是最近七天的日誌與本回合寫入的檔案。〈所有日誌檔案清單〉列出更早的檔案名稱——草稿引用了清單中存在、但內容未提供給你的較舊日期時，「不要」因為你看不到內容就判定捏造；只有當草稿引用的日期連檔案都不存在、或與提供的內容明顯矛盾時，才視為問題。
 4. **數據正確**：回覆中的數值（血壓、劑量、時間等）必須出自家屬訊息或檔案內容，不能捏造或抄錯。
 5. **遵守工作準則**：〈小安的工作準則〉是她被設定必須遵守的完整指引（含家屬自訂指示）。對照檢查她這回合的「行為」與「回覆」都符合準則，特別是：
    （a）該記錄的照護資訊有記錄；記錄前有正確判斷是新事件、補充、修正還是重複回報（修正要改原條目，不是加新條目）；
@@ -62,6 +65,7 @@ const REVIEWER_SYSTEM = `你是照護日誌機器人「小安」的獨立審核�
 - 只有文字問題（格式、語氣、措辭、數字抄錯但檔案是對的）：{"verdict":"revise","reply":"修正後的完整回覆","reason":"一句話說明修了什麼"}
 - 需要小安重做（該寫入的沒寫入、家屬要求的動作沒完成、檔案內容需要用工具修正）：{"verdict":"reject","feedback":"具體告訴小安缺了什麼、該補做什麼動作"}
 
+verdict 欄位必須與你的分析結論一致：如果你的結論是「可以送出」或「核准」，就輸出 approve（或 revise 附上修正文字），絕對不要輸出 reject。
 分辨 revise 與 reject 的準則：文字改一改就能讓回覆變誠實且完整 → revise；問題出在「動作沒做」，光改文字只是把謊話改成道歉 → reject，讓小安真的去做。
 reject 的 feedback 要具體可執行，例如：「家屬回報的鉀離子 2.7 與點滴醫囑尚未寫入今天的日誌，請用 log_entry 記錄後再回覆」。`;
 
@@ -81,6 +85,8 @@ ${input.recentTurns || "（無）"}
 
 〈小安的工作準則（她必須遵守的完整指引，含家屬自訂指示）〉：
 ${input.agentGuidance.trim()}
+
+〈所有日誌檔案清單〉：${input.allLogFiles?.length ? input.allLogFiles.join("、") : "（無）"}
 
 〈本回合實際寫入的檔案〉：${input.wrote.length > 0 ? input.wrote.join("、") : "（沒有任何寫入）"}
 

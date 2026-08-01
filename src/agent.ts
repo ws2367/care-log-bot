@@ -360,6 +360,9 @@ async function runLoop(state: AgentState): Promise<AgentResult> {
     const cleaned = text
       .replace(/\*\*(.+?)\*\*/g, "$1")
       .replace(/^#{1,4}\s+/gm, "")
+      // Internal transcript annotations must never leak into LINE replies —
+      // the model sometimes imitates them from its conversation history.
+      .replace(/〔本回合[^〕]*〕/g, "")
       .trim();
     return { reply: cleaned, wrote, state };
   }
