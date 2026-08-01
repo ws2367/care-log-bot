@@ -240,11 +240,19 @@ export interface IncomingMessage {
   audioPath?: string;
 }
 
+/** Full working state of a run — kept so the reviewer can send the agent back. */
+export interface AgentState {
+  messages: ChatMessage[];
+  wrote: string[];
+}
+
 export interface AgentResult {
   /** Reply text, or null when the bot chooses to stay silent. */
   reply: string | null;
-  /** Repo files successfully written during this run. */
+  /** Repo files successfully written during this run (accumulated across iterations). */
   wrote: string[];
+  /** Pass to continueAgent() to iterate after reviewer feedback. */
+  state: AgentState;
 }
 
 /** Run the agent loop for one incoming message. */
@@ -277,7 +285,27 @@ export async function runAgent(ctx: BotContext, incoming: IncomingMessage): Prom
     { role: "user", content: userParts },
   ];
 
-  const wrote: string[] = [];
+  return runLoop({ messages, wrote: [] });
+}
+
+/**
+ * Resume a prior run with reviewer feedback. The agent keeps its complete
+ * state (tool calls, results, drafts), so it can fix exactly what the
+ * reviewer flagged — write what it claimed, or restate what it actually did.
+ */
+export async function continueAgent(state: AgentState, feedback: string): Promise<AgentResult> {
+  state.messages.push({
+    role: "user",
+    content:
+      `（內部審核回饋，此訊息不是家屬傳的）審核員退回了你的回覆：${feedback}\n` +
+      "請據此修正：該寫入而尚未寫入的內容，現在就呼叫工具完成；已做過的變更要在回覆中如實描述。" +
+      "修正完成後，重新給出要傳給家屬的最終回覆。",
+  });
+  return runLoop(state);
+}
+
+async function runLoop(state: AgentState): Promise<AgentResult> {
+  const { messages, wrote } = state;
   let guardRounds = 0;
 
   const MAX_ITERATIONS = 10;
@@ -301,7 +329,9 @@ export async function runAgent(ctx: BotContext, incoming: IncomingMessage): Prom
     }
 
     const text = (msg.content ?? "").trim();
-    if (!text || text === NO_REPLY || text.includes(NO_REPLY)) return { reply: null, wrote };
+    if (!text || text === NO_REPLY || text.includes(NO_REPLY)) {
+      return { reply: null, wrote, state };
+    }
 
     // Write-guard: the model may claim "已記錄" without having called any
     // write tool (it imitates its own past replies). Push back once and let
@@ -322,14 +352,17 @@ export async function runAgent(ctx: BotContext, incoming: IncomingMessage): Prom
       continue;
     }
 
+    // Keep the final draft in state so a reviewer send-back has full history.
+    messages.push({ role: "assistant", content: text });
+
     // LINE renders plain text only — strip markdown emphasis/heading markers
     // in case the model slips them in despite the prompt.
     const cleaned = text
       .replace(/\*\*(.+?)\*\*/g, "$1")
       .replace(/^#{1,4}\s+/gm, "")
       .trim();
-    return { reply: cleaned, wrote };
+    return { reply: cleaned, wrote, state };
   }
 
-  return { reply: "抱歉，這則訊息我處理得有點久，請再傳一次好嗎？🙏", wrote };
+  return { reply: "抱歉，這則訊息我處理得有點久，請再傳一次好嗎？🙏", wrote, state };
 }

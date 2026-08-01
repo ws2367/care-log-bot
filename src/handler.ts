@@ -1,4 +1,4 @@
-import { runAgent, type IncomingMessage } from "./agent.js";
+import { continueAgent, runAgent, type AgentState, type IncomingMessage } from "./agent.js";
 import { localDateTime } from "./config.js";
 import { getMessageContent, getSenderName, respond } from "./line.js";
 import { reviewReply } from "./reviewer.js";
@@ -114,10 +114,12 @@ export async function handleEvent(event: LineEvent): Promise<void> {
 
   let reply: string | null = null;
   let wrote: string[] = [];
+  let agentState: AgentState | null = null;
   try {
     const result = await runAgent(ctx, incoming);
     reply = result.reply;
     wrote = result.wrote;
+    agentState = result.state;
   } catch (err) {
     console.error("agent failed", err);
     // Still persist the user's turn so the information isn't lost from
@@ -138,36 +140,65 @@ export async function handleEvent(event: LineEvent): Promise<void> {
     return;
   }
 
-  // Pre-send review: an independent model call with a clean context window
-  // checks the draft against the ACTUAL post-write file contents, so the bot
-  // can never again claim "已記錄" for something that isn't in the files.
+  // Pre-send review loop: an independent model call with a clean context
+  // window checks the draft against the ACTUAL post-write file contents.
+  //  - approve → send as-is
+  //  - revise  → wording fixed by the reviewer, send
+  //  - reject  → the agent resumes its run with the reviewer's feedback
+  //              (write what it claimed / claim what it wrote), then the new
+  //              draft is reviewed again. Up to MAX_REVIEW_ROUNDS rounds.
   // Fails open (sends the draft) so a reviewer outage can't block care messages.
-  if (reply) {
+  if (reply && agentState) {
     try {
-      const today = localDateTime().date;
-      const paths = [...new Set([PATHS.log(today), PATHS.profile, PATHS.members, ...wrote])];
-      const files = (
-        await Promise.all(
-          paths.map(async (p) => ({ path: p, content: await readDataFile(p) }))
-        )
-      ).filter((f): f is { path: string; content: string } => f.content !== null);
-
+      const MAX_REVIEW_ROUNDS = 3;
       const recentTurns = ctx.turns
         .slice(-4)
         .map((t) => `${t.role === "user" ? t.name ?? "家屬" : "小安"}：${t.text.slice(0, 200)}`)
         .join("\n");
 
-      const review = await reviewReply({
-        senderName,
-        incomingText: incoming.text,
-        recentTurns,
-        draft: reply,
-        wrote,
-        files,
-      });
-      if (review.revised) {
-        console.log("reviewer revised reply:", review.reason);
-        reply = review.finalReply;
+      for (let round = 1; round <= MAX_REVIEW_ROUNDS; round++) {
+        const today = localDateTime().date;
+        const paths = [...new Set([PATHS.log(today), PATHS.profile, PATHS.members, ...wrote])];
+        const files = (
+          await Promise.all(
+            paths.map(async (p) => ({ path: p, content: await readDataFile(p) }))
+          )
+        ).filter((f): f is { path: string; content: string } => f.content !== null);
+
+        const review = await reviewReply({
+          senderName,
+          incomingText: incoming.text,
+          recentTurns,
+          draft: reply,
+          wrote,
+          files,
+          customInstructions: ctx.instructions,
+        });
+
+        if (review.verdict === "approve") break;
+        if (review.verdict === "revise") {
+          console.log(`reviewer revised (round ${round}):`, review.reason);
+          reply = review.finalReply;
+          break;
+        }
+
+        // reject — send the agent back to work.
+        console.log(`reviewer rejected (round ${round}):`, review.feedback);
+        if (round === MAX_REVIEW_ROUNDS) {
+          // Still failing after all rounds: send an honest fallback rather
+          // than an unverified claim.
+          reply =
+            "抱歉，這則訊息我還沒有處理妥當（內部檢查沒通過）。內容我先留著了，請稍後對我說「補記錄」，或再傳一次 🙏";
+          break;
+        }
+        const redo = await continueAgent(
+          agentState,
+          review.feedback ?? "回覆與實際動作不一致，請確實完成該做的動作後重新回覆。"
+        );
+        wrote = redo.wrote;
+        agentState = redo.state;
+        if (!redo.reply) break; // agent went silent; keep the prior reply path
+        reply = redo.reply;
       }
     } catch (err) {
       console.error("reviewer failed; sending unreviewed draft", err);
