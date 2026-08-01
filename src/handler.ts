@@ -1,6 +1,7 @@
 import { continueAgent, runAgent, type AgentState, type IncomingMessage } from "./agent.js";
 import { localDateTime } from "./config.js";
 import { getMessageContent, getSenderName, respond } from "./line.js";
+import { buildSystemPrompt } from "./prompts.js";
 import { reviewReply } from "./reviewer.js";
 import {
   loadContext,
@@ -172,7 +173,7 @@ export async function handleEvent(event: LineEvent): Promise<void> {
           draft: reply,
           wrote,
           files,
-          customInstructions: ctx.instructions,
+          agentGuidance: buildSystemPrompt(localDateTime(), ctx.instructions),
         });
 
         if (review.verdict === "approve") break;

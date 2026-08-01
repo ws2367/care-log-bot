@@ -12,8 +12,11 @@ export interface ReviewInput {
   wrote: string[];
   /** Ground truth: current post-write contents of the relevant data files. */
   files: Array<{ path: string; content: string }>;
-  /** Family's standing instructions (prompts/custom.md) the agent must follow. */
-  customInstructions?: string;
+  /**
+   * The agent's full working guidance (her system prompt, including the
+   * family's custom instructions) — the reviewer audits compliance with it.
+   */
+  agentGuidance: string;
 }
 
 export type ReviewVerdict = "approve" | "revise" | "reject";
@@ -43,7 +46,13 @@ const REVIEWER_SYSTEM = `你是照護日誌機器人「小安」的獨立審核�
    檔案內容有誤時用 reject 退回（要用工具修檔案），不能只改回覆文字。
 3. **檔案為準**：回答「有沒有記錄」這類問題時，答案必須與〈檔案實際內容〉完全一致——不能多列不存在的紀錄，也不能漏掉存在的。
 4. **數據正確**：回覆中的數值（血壓、劑量、時間等）必須出自家屬訊息或檔案內容，不能捏造或抄錯。
-5. **遵守指示**：回覆必須符合〈家屬自訂指示〉（若有）。
+5. **遵守工作準則**：〈小安的工作準則〉是她被設定必須遵守的完整指引（含家屬自訂指示）。對照檢查她這回合的「行為」與「回覆」都符合準則，特別是：
+   （a）該記錄的照護資訊有記錄；記錄前有正確判斷是新事件、補充、修正還是重複回報（修正要改原條目，不是加新條目）；
+   （b）缺少關鍵資訊時有先記已知部分再追問，且一次最多追問兩個問題，不能連珠炮；
+   （c）不認識的傳訊者有先詢問稱呼與關係；家屬提供病患基本資料時有更新 profile；家屬提出長期偏好時有寫入自訂指示；
+   （d）與照護無關的群組閒聊應保持沉默（不過這點你看不到沉默的情況，只需確認回覆沒有打擾性的離題內容）；
+   （e）回覆風格符合準則：簡潔溫暖、不診斷、預設繁體中文台灣用語。
+   行為層面沒做到（該做的動作沒做、做錯）→ reject；只是措辭、風格、格式問題 → revise。
 6. **純文字**：LINE 不支援 markdown。移除 **粗體**、# 標題、表格符號；條列用 - 或 •。
 7. **醫療界線**：不診斷、不建議更改處方；危急徵兆（意識不清、呼吸困難、大量出血、胸痛等）應提醒就醫或撥打 119。
 8. **語言與語氣**：與家屬使用的語言一致（預設繁體中文台灣用語），簡潔溫暖。
@@ -70,8 +79,8 @@ ${input.incomingText}
 〈近期對話（僅供理解語境）〉：
 ${input.recentTurns || "（無）"}
 
-〈家屬自訂指示〉：
-${input.customInstructions?.trim() || "（無）"}
+〈小安的工作準則（她必須遵守的完整指引，含家屬自訂指示）〉：
+${input.agentGuidance.trim()}
 
 〈本回合實際寫入的檔案〉：${input.wrote.length > 0 ? input.wrote.join("、") : "（沒有任何寫入）"}
 
