@@ -163,7 +163,8 @@ async function executeToolImpl(name: string, args: Record<string, unknown>): Pro
         String(args.eid ?? ""),
         status,
         actual,
-        args.note ? String(args.note) : undefined
+        args.note ? String(args.note) : undefined,
+        args.shift_followups === true
       );
       if (!res.ok) throw new Error(res.message);
       return res.message;
@@ -288,6 +289,12 @@ const TOOL_DEFS: Array<{
       eid: Type.String({ description: "行程項目 ID，例如 feeding-2（先用 get_schedule 查）" }),
       status: Type.Union([Type.Literal("done"), Type.Literal("skipped")]),
       actual_time: Type.Optional(Type.String({ description: "實際完成時間 HH:MM（預設現在）" })),
+      shift_followups: Type.Optional(
+        Type.Boolean({
+          description:
+            "true＝實際時間比預定晚（或早）時，後續同類待辦行程依同樣差距順延、保持間隔。家屬回報做晚了而且之後要照間隔走時使用。",
+        })
+      ),
       note: Type.Optional(Type.String({ description: "備註，例如「水 200ml」" })),
       date: Type.Optional(Type.String({ description: "YYYY-MM-DD（預設今天）" })),
     }),

@@ -224,13 +224,18 @@ export interface MutationResult {
   plan?: DayPlan;
 }
 
-/** Mark an event done/skipped (records actual time; no cascade). */
+/**
+ * Mark an event done/skipped, recording the actual time. With
+ * `shiftFollowups`, later pending same-chain events shift by the difference
+ * between actual and planned time — "happened late, keep the spacing".
+ */
 export async function recordEvent(
   date: string,
   eid: string,
   status: "done" | "skipped",
   actual?: string,
-  note?: string
+  note?: string,
+  shiftFollowups = false
 ): Promise<MutationResult> {
   const plan = await loadPlan(date);
   const ev = plan.events.find((e) => e.eid === eid);
@@ -238,8 +243,29 @@ export async function recordEvent(
   ev.status = status;
   if (actual) ev.actual = actual;
   if (note) ev.note = note;
+
+  const shifted: string[] = [];
+  if (shiftFollowups && status === "done" && actual && /^\d{1,2}:\d{2}$/.test(actual)) {
+    const delta = toMinutes(actual) - (ev.planned % 1440);
+    if (delta !== 0) {
+      for (const e of plan.events) {
+        if (e.routine !== ev.routine || e.status !== "pending") continue;
+        if (e.planned <= ev.planned) continue;
+        e.planned += delta;
+        shifted.push(`${e.name}${e.side ? `(${e.side})` : ""} → ${fromMinutes(e.planned)}`);
+      }
+      plan.events.sort((a, b) => a.planned - b.planned || a.eid.localeCompare(b.eid));
+    }
+  }
+
   await savePlan(plan, `schedule: ${ev.name} ${eid} ${status === "done" ? "完成" : "略過"}`);
-  return { ok: true, message: `已更新 ${planViewPath(date)}`, plan };
+  return {
+    ok: true,
+    message:
+      `已更新 ${planViewPath(date)}` +
+      (shifted.length > 0 ? `\n後續同類行程保持間隔順延：${shifted.join("、")}` : ""),
+    plan,
+  };
 }
 
 /**
@@ -256,6 +282,17 @@ export async function delayEvent(
 ): Promise<MutationResult> {
   if (!/^\d{1,2}:\d{2}$/.test(newTime)) {
     return { ok: false, message: `時間格式錯誤：${newTime}（需 HH:MM）` };
+  }
+  // A pending event can only be moved to the future. Moving it into the past
+  // is always a misread of a completion report ("兩點半的時候做了…").
+  if (date === localDateTime().date && toMinutes(newTime) < nowMinutes() - 10) {
+    return {
+      ok: false,
+      message:
+        `新時間 ${newTime} 已經過去（現在 ${fromMinutes(nowMinutes())}）。` +
+        `如果家屬是在回報「已經完成」的行程，請改用 record_routine 記錄實際完成時間` +
+        `（需要保持間隔時加 shift_followups:true）。delay_routine 只能把待辦行程移到未來的時間。`,
+    };
   }
   const plan = await loadPlan(date);
   const ev = plan.events.find((e) => e.eid === eid);
