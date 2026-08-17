@@ -11,6 +11,14 @@ import {
   writeProfile,
   type BotContext,
 } from "./store.js";
+import {
+  delayEvent,
+  loadPlan,
+  nowMinutes,
+  recordEvent,
+  renderPlanForAgent,
+  saveRoutines,
+} from "./schedule.js";
 
 // ── Tool definitions ─────────────────────────────────────────────────────────
 
@@ -127,6 +135,72 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "get_schedule",
+      description:
+        "查看某日的照護例行行程表（餵食、吃藥、翻身、尿布檢查、擦澡、拍痰、抽痰、復健），含每個項目的 eid、預定時間、輪替姿勢與完成狀態。回答「下一個行程」「今天還剩什麼」或標記完成/延遲之前，先用這個工具。",
+      parameters: {
+        type: "object",
+        properties: {
+          date: { type: "string", description: "YYYY-MM-DD（預設今天）" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "record_routine",
+      description:
+        "標記某個例行行程項目為完成或略過（記錄實際時間）。家屬回報「餵好了」「剛翻完身」時使用。不會影響其他行程時間。值得保存的細節（水量、痰的狀況等）另外用 log_entry 記錄。",
+      parameters: {
+        type: "object",
+        properties: {
+          eid: { type: "string", description: "行程項目 ID，例如 feeding-2（先用 get_schedule 查）" },
+          status: { type: "string", enum: ["done", "skipped"] },
+          actual_time: { type: "string", description: "實際完成時間 HH:MM（預設現在）" },
+          note: { type: "string", description: "備註，例如「水 200ml」" },
+          date: { type: "string", description: "YYYY-MM-DD（預設今天）" },
+        },
+        required: ["eid", "status"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delay_routine",
+      description:
+        "把某個例行行程延到新時間；當天「後續同類」的行程會自動往後推同樣的時間，保持間隔（附掛項目如吃藥、尿布檢查、拍痰跟著移動）。回覆家屬時要告知連動調整後的新時間。",
+      parameters: {
+        type: "object",
+        properties: {
+          eid: { type: "string", description: "要延遲的行程項目 ID（先用 get_schedule 查）" },
+          new_time: { type: "string", description: "新的預定時間 HH:MM" },
+          note: { type: "string", description: "延遲原因（可省略）" },
+          date: { type: "string", description: "YYYY-MM-DD（預設今天）" },
+        },
+        required: ["eid", "new_time"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_routines",
+      description:
+        "覆寫例行行程的「規則設定」schedule/routines.json（提供完整 JSON）。用於長期調整：改時間表、增減次數、改水量或注意事項說明。當天已產生的行程表不會自動重排（需要的話另用 delay_routine 調整今天）。chain=有自己時間表的行程（times: [\"HH:MM\"...]，可選 cycle 輪替標籤）；rider=附掛在 chain 上的行程（parent + 可選 onEvents 索引）。",
+      parameters: {
+        type: "object",
+        properties: {
+          content: { type: "string", description: "整份 routines.json 的新內容（JSON 字串）" },
+        },
+        required: ["content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "list_logs",
       description: "列出所有日誌檔案名稱（logs/ 目錄），用來找出有哪些日期有紀錄。",
       parameters: { type: "object", properties: {} },
@@ -152,6 +226,9 @@ const WRITE_TOOLS = new Set([
   "update_profile",
   "update_members",
   "update_instructions",
+  "record_routine",
+  "delay_routine",
+  "update_routines",
 ]);
 
 /**
@@ -218,6 +295,38 @@ async function executeTool(name: string, argsJson: string): Promise<string> {
       case "list_logs": {
         const files = await listLogFiles();
         return files.length > 0 ? files.join("\n") : "（目前沒有任何日誌）";
+      }
+      case "get_schedule": {
+        const date = String(args.date ?? "") || localDateTime().date;
+        const plan = await loadPlan(date);
+        return renderPlanForAgent(plan, nowMinutes());
+      }
+      case "record_routine": {
+        const date = String(args.date ?? "") || localDateTime().date;
+        const status = args.status === "skipped" ? "skipped" : "done";
+        const actual = String(args.actual_time ?? "") || localDateTime().time;
+        const res = await recordEvent(
+          date,
+          String(args.eid ?? ""),
+          status,
+          actual,
+          args.note ? String(args.note) : undefined
+        );
+        return res.message;
+      }
+      case "delay_routine": {
+        const date = String(args.date ?? "") || localDateTime().date;
+        const res = await delayEvent(
+          date,
+          String(args.eid ?? ""),
+          String(args.new_time ?? ""),
+          args.note ? String(args.note) : undefined
+        );
+        return res.message;
+      }
+      case "update_routines": {
+        const err = await saveRoutines(String(args.content ?? ""));
+        return err ?? "已更新 schedule/routines.json";
       }
       default:
         return `錯誤：未知的工具 ${name}`;
