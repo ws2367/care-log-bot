@@ -170,6 +170,8 @@ export async function handleEvent(event: LineEvent): Promise<void> {
             PATHS.log(today),
             PATHS.profile,
             PATHS.members,
+            `schedule/${today}.md`,
+            "schedule/routines.json",
             ...wrote,
           ]),
         ];
@@ -187,6 +189,7 @@ export async function handleEvent(event: LineEvent): Promise<void> {
           wrote,
           files,
           allLogFiles,
+          toolTrace: agentState.trace,
           agentGuidance: buildSystemPrompt(localDateTime(), ctx.instructions),
         });
 

@@ -10,6 +10,8 @@
     "deploy": "vercel deploy --prod"
   },
   "dependencies": {
+    "@earendil-works/pi-agent-core": "^0.84.2",
+    "@earendil-works/pi-ai": "^0.84.2",
     "@hono/node-server": "^1.19.17",
     "@vercel/functions": "^2.0.0",
     "hono": "^4.6.0"

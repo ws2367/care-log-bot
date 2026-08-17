@@ -14,6 +14,8 @@ export interface ReviewInput {
   files: Array<{ path: string; content: string }>;
   /** Names of ALL log files in the repo (content of older ones not included). */
   allLogFiles?: string[];
+  /** Every tool call the agent made this turn (including read-only queries). */
+  toolTrace?: string[];
   /**
    * The agent's full working guidance (her system prompt, including the
    * family's custom instructions) — the reviewer audits compliance with it.
@@ -56,6 +58,8 @@ const REVIEWER_SYSTEM = `你是照護日誌機器人「小安」的獨立審核�
    （d）與照護無關的群組閒聊應保持沉默（不過這點你看不到沉默的情況，只需確認回覆沒有打擾性的離題內容）；
    （e）回覆風格符合準則：簡潔溫暖、不診斷、預設繁體中文台灣用語。
    行為層面沒做到（該做的動作沒做、做錯）→ reject；只是措辭、風格、格式問題 → revise。
+   判斷行為時以〈本回合工具呼叫紀錄〉為準——唯讀查詢（get_schedule、read_file、list_logs）不會寫入檔案，這是正常的；草稿引用查詢結果（例如行程表內容）時，對照工具回傳內容驗證即可，不要因為「沒有寫入」就當作編造。
+   例行行程完成用 record_routine 標記即算完成，不強制同時寫 log_entry——只有家屬提供了值得保存的細節（數值、狀況描述）而沒記錄時才需要補 log_entry。
 6. **純文字**：LINE 不支援 markdown。移除 **粗體**、# 標題、表格符號；條列用 - 或 •。
 7. **醫療界線**：不診斷、不建議更改處方；危急徵兆（意識不清、呼吸困難、大量出血、胸痛等）應提醒就醫或撥打 119。
 8. **語言與語氣**：與家屬使用的語言一致（預設繁體中文台灣用語），簡潔溫暖。
@@ -89,6 +93,9 @@ ${input.agentGuidance.trim()}
 〈所有日誌檔案清單〉：${input.allLogFiles?.length ? input.allLogFiles.join("、") : "（無）"}
 
 〈本回合實際寫入的檔案〉：${input.wrote.length > 0 ? input.wrote.join("、") : "（沒有任何寫入）"}
+
+〈本回合工具呼叫紀錄（含唯讀查詢，依序）〉：
+${input.toolTrace?.length ? input.toolTrace.join("\n") : "（本回合沒有呼叫任何工具）"}
 
 〈檔案實際內容（唯一事實來源）〉：
 ${filesBlock}

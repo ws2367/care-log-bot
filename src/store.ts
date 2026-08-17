@@ -198,7 +198,7 @@ export async function editDataFile(
 export async function readDataFile(path: string): Promise<string | null> {
   const clean = path.replace(/^\/+/, "");
   if (clean.includes("..")) return null;
-  const allowed = ["patient/", "logs/", "attachments/", "prompts/"];
+  const allowed = ["patient/", "logs/", "attachments/", "prompts/", "schedule/"];
   if (!allowed.some((p) => clean.startsWith(p))) return null;
   const f = await readFile(clean);
   return f?.content ?? null;
