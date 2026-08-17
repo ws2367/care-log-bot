@@ -164,6 +164,11 @@ export async function saveRoutines(json: string): Promise<string | null> {
     }
   }
   await writeFile(ROUTINES_PATH, JSON.stringify(parsed, null, 2), "schedule: 更新例行行程設定");
+  await writeFile(
+    "schedule/routines.md",
+    renderRoutinesTemplate(parsed),
+    "schedule: 更新例行行程規則表"
+  );
   return null;
 }
 
@@ -324,19 +329,103 @@ export async function delayEvent(
 
 // ── Rendering ────────────────────────────────────────────────────────────────
 
-export function renderPlanMarkdown(plan: DayPlan): string {
-  const lines = [`# ${plan.date} 照護行程`, ""];
-  for (const e of plan.events) {
-    const box = e.status === "done" ? "x" : " ";
-    const skip = e.status === "skipped" ? "（略過）" : "";
-    const side = e.side ? `（${e.side}）` : "";
-    const riders = e.riders.length > 0 ? `＋${e.riders.join("＋")}` : "";
-    const actual = e.actual ? ` ✅ ${e.actual}` : "";
-    const note = e.note ? ` — ${e.note}` : "";
-    lines.push(`- [${box}] ${fromMinutes(e.planned)} ${e.name}${side}${riders}${skip}${actual}${note}`);
+/** Activity column order for the grouped table views. */
+const COLUMN_ORDER = ["翻身", "大小便檢查", "拍痰", "餵食", "吃藥", "抽痰", "復健", "清潔擦澡"];
+
+function activityColumns(events: Array<{ name: string; riders: string[] }>): string[] {
+  const names = new Set<string>();
+  for (const e of events) {
+    names.add(e.name);
+    for (const r of e.riders) names.add(r);
   }
-  lines.push("", "> 由小安自動維護；完成、延遲、調整請在 LINE 跟小安說。");
-  return lines.join("\n") + "\n";
+  return [
+    ...COLUMN_ORDER.filter((n) => names.has(n)),
+    ...[...names].filter((n) => !COLUMN_ORDER.includes(n)).sort(),
+  ];
+}
+
+function groupByTime(events: PlanEvent[]): Array<[number, PlanEvent[]]> {
+  const groups = new Map<number, PlanEvent[]>();
+  for (const e of events) {
+    const g = groups.get(e.planned) ?? [];
+    g.push(e);
+    groups.set(e.planned, g);
+  }
+  return [...groups.entries()].sort((a, b) => a[0] - b[0]);
+}
+
+/**
+ * Grouped-table view: rows are time slots (care sessions), columns are the
+ * activity grouping. Activities at the same time merge into one row.
+ */
+export function renderPlanMarkdown(plan: DayPlan): string {
+  const cols = activityColumns(plan.events);
+  const rows = groupByTime(plan.events).map(([t, evs]) => {
+    const cell: Record<string, string> = {};
+    const notes: string[] = [];
+    const actuals: string[] = [];
+    for (const e of evs) {
+      const mark = e.status === "done" ? "✓" : e.status === "skipped" ? "✗" : "●";
+      cell[e.name] = e.name === "翻身" && e.side ? `${e.side}${mark}` : mark;
+      for (const r of e.riders) cell[r] = mark;
+      if (e.actual && e.status !== "pending") actuals.push(e.actual);
+      if (e.note) notes.push(e.note);
+    }
+    const actual = [...new Set(actuals)].join(" / ");
+    return `| ${fromMinutes(t)} | ${actual} | ${cols.map((c) => cell[c] ?? "―").join(" | ")} | ${[...new Set(notes)].join("；")} |`;
+  });
+
+  return [
+    `# ${plan.date} 照護行程表`,
+    "",
+    `| 預定 | 實際 | ${cols.join(" | ")} | 備註 |`,
+    `| --- | --- | ${cols.map(() => ":-:").join(" | ")} | --- |`,
+    ...rows,
+    "",
+    "> ●＝待辦　✓＝完成　✗＝略過　―＝不適用；「實際」欄為回報的完成時間。",
+    "> 由小安自動維護；完成、延遲、調整請在 LINE 跟小安說。",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Rules template as the same grouped table: the activity grouping is the
+ * designed structure; the 時間 column holds the fill-in times (adjustable
+ * by telling 小安).
+ */
+export function renderRoutinesTemplate(config: RoutineConfig): string {
+  const plan = generatePlan(config, "template");
+  const cols = activityColumns(plan.events);
+  const rows = groupByTime(plan.events).map(([t, evs]) => {
+    const cell: Record<string, string> = {};
+    for (const e of evs) {
+      cell[e.name] = e.name === "翻身" && e.side ? e.side : "○";
+      for (const r of e.riders) cell[r] = "○";
+    }
+    return `| ${fromMinutes(t)} | ${cols.map((c) => cell[c] ?? "―").join(" | ")} |`;
+  });
+  const details = config.routines
+    .filter((r) => r.detail)
+    .map((r) => `- **${r.name}**：${r.detail}`)
+    .join("\n");
+
+  return [
+    "# 照護例行行程規則",
+    "",
+    "> 每天的行程表依這張表產生：活動的「組合」是固定設計，時段的「時間」可以調整——",
+    "> 直接在 LINE 跟小安說即可（例如「以後餵食從七點開始」「擦澡改到下午三點」）。",
+    "",
+    `| 時間 | ${cols.join(" | ")} |`,
+    `| --- | ${cols.map(() => ":-:").join(" | ")} |`,
+    ...rows,
+    "",
+    "> ○＝該時段要做　―＝不適用；翻身欄顯示輪替姿勢（左／中／右）。",
+    "",
+    "## 各項目說明",
+    "",
+    details,
+    "",
+  ].join("\n");
 }
 
 /** Compact text view for the agent (includes eids). */
