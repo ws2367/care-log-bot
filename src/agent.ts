@@ -74,7 +74,7 @@ const WRITE_TOOLS = new Set([
  * is a real failure mode: the model must write first, then reply.
  */
 const CLAIMS_WRITE =
-  /已記錄|已更新|已刪除|已寫入|記下來|記錄了|紀錄了|已修改|已補充|(?:馬上|立刻|立即|現在就|稍後|等等)[^。\n]{0,10}(?:記錄|寫入|處理|補)|我會[^。\n]{0,12}(?:記錄|寫入|補)/;
+  /已記錄|已更新|已刪除|已寫入|記下來|記錄了|紀錄了|已修改|已補充|已調整|調整了|已安排|安排了|已順延|順延了|已改|改到了|(?:馬上|立刻|立即|現在就|稍後|等等)[^。\n]{0,10}(?:記錄|寫入|處理|補|調整|安排)|我會[^。\n]{0,12}(?:記錄|寫入|補|調整|安排)/;
 
 async function executeToolImpl(name: string, args: Record<string, unknown>): Promise<string> {
   switch (name) {
@@ -151,7 +151,8 @@ async function executeToolImpl(name: string, args: Record<string, unknown>): Pro
         date,
         String(args.eid ?? ""),
         String(args.new_time ?? ""),
-        args.note ? String(args.note) : undefined
+        args.note ? String(args.note) : undefined,
+        args.cascade !== false
       );
       if (!res.ok) throw new Error(res.message);
       return res.message;
@@ -276,6 +277,12 @@ const TOOL_DEFS: Array<{
     parameters: Type.Object({
       eid: Type.String({ description: "要延遲的行程項目 ID（先用 get_schedule 查）" }),
       new_time: Type.String({ description: "新的預定時間 HH:MM" }),
+      cascade: Type.Optional(
+        Type.Boolean({
+          description:
+            "true（預設）＝進度延誤：後續同類行程一起順延、保持間隔。false＝單次改期：只改這一個事件，其他行程不動（例如「今天抽痰改到兩點」）。",
+        })
+      ),
       note: Type.Optional(Type.String({ description: "延遲原因（可省略）" })),
       date: Type.Optional(Type.String({ description: "YYYY-MM-DD（預設今天）" })),
     }),

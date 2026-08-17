@@ -251,7 +251,8 @@ export async function delayEvent(
   date: string,
   eid: string,
   newTime: string,
-  note?: string
+  note?: string,
+  cascade = true
 ): Promise<MutationResult> {
   if (!/^\d{1,2}:\d{2}$/.test(newTime)) {
     return { ok: false, message: `時間格式錯誤：${newTime}（需 HH:MM）` };
@@ -264,6 +265,7 @@ export async function delayEvent(
   const shifted: string[] = [];
   for (const e of plan.events) {
     if (e.routine !== ev.routine || e.status !== "pending") continue;
+    if (!cascade && e.eid !== ev.eid) continue;
     if (e.planned < ev.planned || (e.planned === ev.planned && e.eid !== ev.eid)) continue;
     e.planned += delta;
     shifted.push(`${e.name}${e.side ? `(${e.side})` : ""} → ${fromMinutes(e.planned)}`);
@@ -272,11 +274,13 @@ export async function delayEvent(
   plan.events.sort((a, b) => a.planned - b.planned || a.eid.localeCompare(b.eid));
   await savePlan(
     plan,
-    `schedule: ${ev.name} 延至 ${newTime}，後續同鏈行程順延 ${delta > 0 ? "+" : ""}${delta} 分鐘`
+    cascade
+      ? `schedule: ${ev.name} 延至 ${newTime}，後續同鏈行程順延 ${delta > 0 ? "+" : ""}${delta} 分鐘`
+      : `schedule: ${ev.name} ${eid} 單次改至 ${newTime}`
   );
   return {
     ok: true,
-    message: `已更新 ${planViewPath(date)}\n連動調整：${shifted.join("、")}`,
+    message: `已更新 ${planViewPath(date)}\n${cascade ? "連動調整" : "單次改期"}：${shifted.join("、")}`,
     plan,
   };
 }
