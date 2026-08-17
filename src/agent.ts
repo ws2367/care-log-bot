@@ -2,6 +2,7 @@ import { Agent as PiAgent, type AgentTool } from "@earendil-works/pi-agent-core"
 import { createModels, Type } from "@earendil-works/pi-ai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { config, localDateTime } from "./config.js";
+import { chatOnce } from "./llm.js";
 import { buildContextBlock, buildSystemPrompt, CATEGORIES, NO_REPLY } from "./prompts.js";
 import {
   appendLogEntry,
@@ -69,12 +70,34 @@ const WRITE_TOOLS = new Set([
 ]);
 
 /**
- * Matches replies that claim something was recorded/updated/deleted — OR
- * promise to do it ("我會馬上寫入", "現在就處理"). Promising instead of doing
- * is a real failure mode: the model must write first, then reply.
+ * LLM-based write-claim detection (replaces the old regex vocabulary, which
+ * could never keep up with phrasings). Asks a small fast model whether the
+ * draft claims a completed write action or promises a future one. Fails open
+ * (returns false) on classifier errors — the reviewer still backstops.
  */
-const CLAIMS_WRITE =
-  /已記錄|已更新|已刪除|已寫入|記下來|記錄了|紀錄了|已修改|已補充|已調整|調整了|已安排|安排了|已順延|順延了|已改|改到了|(?:馬上|立刻|立即|現在就|稍後|等等)[^。\n]{0,10}(?:記錄|寫入|處理|補|調整|安排)|我會[^。\n]{0,12}(?:記錄|寫入|補|調整|安排)/;
+async function claimsWriteAction(draft: string): Promise<boolean> {
+  try {
+    const choice = await chatOnce(
+      [
+        {
+          role: "system",
+          content:
+            "你是二元分類器。判斷給定的訊息是否「宣稱已完成」或「承諾將進行」任何資料異動類動作——" +
+            "例如：記錄、寫入、更新、修改、刪除、補充、調整行程、安排時間、標記完成。" +
+            "單純回答問題、轉述既有資料、詢問細節、閒聊，都算 false。" +
+            '只輸出 JSON：{"claims":true} 或 {"claims":false}。',
+        },
+        { role: "user", content: draft },
+      ],
+      { model: config.guardModel, maxTokens: 24 }
+    );
+    const raw = (choice.message.content ?? "").trim();
+    return /"claims"\s*:\s*true/.test(raw);
+  } catch (err) {
+    console.error("write-claim classifier failed; skipping guard", err);
+    return false;
+  }
+}
 
 async function executeToolImpl(name: string, args: Record<string, unknown>): Promise<string> {
   switch (name) {
@@ -401,7 +424,7 @@ async function finalize(state: AgentState): Promise<AgentResult> {
     if (!text || text === NO_REPLY || text.includes(NO_REPLY)) {
       return { reply: null, wrote: state.wrote, state };
     }
-    if (state.wrote.length === 0 && CLAIMS_WRITE.test(text) && guardRounds < 2) {
+    if (state.wrote.length === 0 && guardRounds < 2 && (await claimsWriteAction(text))) {
       guardRounds++;
       await promptSafe(
         state.agent,

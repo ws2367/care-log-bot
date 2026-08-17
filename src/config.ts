@@ -21,6 +21,10 @@ export const config = {
   get reviewerModel() {
     return process.env.OPENROUTER_REVIEWER_MODEL || this.openrouterModel;
   },
+  /** Small fast model for the in-loop write-claim classifier. */
+  get guardModel() {
+    return process.env.OPENROUTER_GUARD_MODEL || "deepseek/deepseek-v4-flash";
+  },
   get githubToken() {
     return required("GITHUB_TOKEN");
   },
